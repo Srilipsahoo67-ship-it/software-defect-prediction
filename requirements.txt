@@ -6,3 +6,5 @@ matplotlib
 seaborn
 imbalanced-learn
 scipy
+joblib
+streamlit

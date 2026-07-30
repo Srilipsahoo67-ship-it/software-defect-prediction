@@ -39,7 +39,9 @@ sns.set_theme(style="whitegrid")
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 DATASET_DIR = os.path.join(SCRIPT_DIR, "datasets")
 PLOTS_DIR   = os.path.join(SCRIPT_DIR, "plots")
+OUTPUT_DIR  = os.path.join(SCRIPT_DIR, "outputs")
 os.makedirs(PLOTS_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 CK_FEATURES = ["wmc", "dit", "noc", "cbo", "rfc", "lcom", "loc"]
 
@@ -257,8 +259,8 @@ print("5-FOLD CV RESULTS (mean scores, SMOTE inside each fold)")
 print(f"{'='*60}")
 print(cv_df.to_string())
 
-cv_df.to_csv(os.path.join(SCRIPT_DIR, "results_cv.csv"))
-print(f"\nSaved: results_cv.csv")
+cv_df.to_csv(os.path.join(OUTPUT_DIR, "results_cv.csv"))
+print(f"\nSaved: outputs/results_cv.csv")
 
 # Plot CV results
 ax = cv_df.plot(kind="bar", figsize=(12, 6), rot=15)

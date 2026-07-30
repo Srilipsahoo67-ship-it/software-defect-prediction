@@ -155,6 +155,35 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
+    /* Sidebar number input boxes — dark background, light text */
+    section[data-testid="stSidebar"] input[type="number"] {
+        background-color: #2d3561 !important;
+        color: #f0f4ff !important;
+        border: 1px solid #4a5568 !important;
+        border-radius: 6px !important;
+        font-size: 1rem !important;
+        font-weight: 600 !important;
+    }
+    section[data-testid="stSidebar"] input[type="number"]:focus {
+        border-color: #667eea !important;
+        box-shadow: 0 0 0 2px rgba(102,126,234,0.4) !important;
+        outline: none !important;
+    }
+    /* Step buttons (+/-) inside number inputs */
+    section[data-testid="stSidebar"] .stNumberInput button {
+        background-color: #2d3561 !important;
+        color: #e2e8f0 !important;
+        border-color: #4a5568 !important;
+    }
+    section[data-testid="stSidebar"] .stNumberInput button:hover {
+        background-color: #667eea !important;
+        color: #ffffff !important;
+    }
+    /* Divider lines in sidebar */
+    section[data-testid="stSidebar"] hr {
+        border-color: #2d3748 !important;
+    }
+
     /* Predict button */
     div.stButton > button {
         width: 100%;

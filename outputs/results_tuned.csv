@@ -1,3 +1,0 @@
-Model,Best CV F1,Accuracy,F1,AUC-ROC
-Random Forest (Tuned),0.4968,0.6597,0.457,0.6472
-XGBoost (Tuned),0.4857,0.6399,0.4315,0.6004

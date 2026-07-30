@@ -158,11 +158,6 @@ def train_and_evaluate(df, features):
     summary.to_csv(out_csv)
     print("\nResults saved to %s" % out_csv)
 
-    # Save test arrays for visualize.py
-    np.save(os.path.join(OUTPUT_DIR, "X_test.npy"), X_test_sc)
-    np.save(os.path.join(OUTPUT_DIR, "y_test.npy"), y_test)
-    print("X_test.npy and y_test.npy saved.")
-
     return trained, scaler, X_train_sm, X_test_sc, y_train_sm, y_test, features
 
 # ─────────────────────────────────────────────

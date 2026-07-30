@@ -29,7 +29,6 @@ from sklearn.metrics import (
     f1_score, roc_auc_score, confusion_matrix,
     ConfusionMatrixDisplay, roc_curve, auc
 )
-from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline

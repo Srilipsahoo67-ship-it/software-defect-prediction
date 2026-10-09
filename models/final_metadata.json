@@ -1,0 +1,38 @@
+{
+  "model": "LightGBM_Tuned",
+  "feature_set": "C_CK_Engineered",
+  "training_features": [
+    "wmc",
+    "dit",
+    "noc",
+    "cbo",
+    "rfc",
+    "lcom",
+    "loc",
+    "log_wmc",
+    "log_loc",
+    "log_lcom",
+    "log_rfc",
+    "log_cbo",
+    "log_dit",
+    "wmc_per_loc",
+    "cbo_per_loc",
+    "rfc_per_wmc",
+    "lcom_per_wmc",
+    "coupling_sum",
+    "complexity_avg"
+  ],
+  "imbalance_strategy": "SMOTE",
+  "threshold": 0.6,
+  "oof_selection_accuracy": 0.6775,
+  "performance_metrics": {
+    "Accuracy": 0.6998,
+    "Precision": 0.6585,
+    "Recall": 0.4355,
+    "F1": 0.5243,
+    "ROC_AUC": 0.7204,
+    "PR_AUC": 0.6237,
+    "Balanced_Acc": 0.6486,
+    "MCC": 0.3325
+  }
+}

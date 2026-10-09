@@ -1,0 +1,9 @@
+Experiment,Exp_Name,N_Features,Model,Accuracy,Precision,Recall,F1,ROC-AUC,PR-AUC,MCC
+5,CK + Engineered Features,24,LightGBM,0.8321,0.6628,0.3958,0.4957,0.8151,0.6007,0.4218
+6,All Raw + Engineered Features,24,LightGBM,0.8321,0.6628,0.3958,0.4957,0.8151,0.6007,0.4218
+7,Feature Selected (k=10),10,HistGB,0.8177,0.5918,0.4028,0.4793,0.7871,0.5573,0.3838
+4,All Raw Features (CK+OO+CC),20,HistGB,0.8088,0.6,0.2917,0.3925,0.718,0.4951,0.3219
+2,CK + OO Metrics,18,LightGBM,0.8059,0.5769,0.3125,0.4054,0.7106,0.4868,0.3217
+8,Tuned + Threshold Opt,20,XGBoost_Tuned,0.8015,0.5652,0.2708,0.3662,0.7093,0.4908,0.2907
+3,"CK + Complexity (max_cc, avg_cc)",9,HistGB,0.7473,0.3736,0.2411,0.2931,0.6412,0.3481,0.1531
+1,Original 7 CK Features,7,ExtraTrees,0.7423,0.3796,0.2908,0.3293,0.611,0.3324,0.1756

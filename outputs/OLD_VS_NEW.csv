@@ -1,0 +1,9 @@
+Metric,Old,New,Improvement,Note
+Accuracy,,0.6998,,"Previous 0.8321 result used incompatible label handling; not comparable."
+F1,,0.5243,,"Previous result used incompatible label handling; not comparable."
+Recall,,0.4355,,"Previous result used incompatible label handling; not comparable."
+Precision,,0.6585,,"Previous result used incompatible label handling; not comparable."
+ROC-AUC,,0.7204,,"Previous result used incompatible label handling; not comparable."
+PR-AUC,,0.6237,,"Previous result used incompatible label handling; not comparable."
+Balanced_Acc,,0.6486,,"No comparable previous result."
+MCC,,0.3325,,"Previous result used incompatible label handling; not comparable."

@@ -1,11 +1,13 @@
-pandas
-numpy
-scikit-learn
-xgboost
-matplotlib
-seaborn
-imbalanced-learn
-scipy
-joblib
-streamlit
-shap
+-r requirements-common.txt
+# POI model bundles were serialized with scikit-learn 1.9.1.
+scikit-learn==1.9.1
+xgboost>=1.7
+lightgbm>=3.3
+imbalanced-learn>=0.10
+scipy>=1.9
+joblib>=1.2
+streamlit>=1.20
+shap>=0.41
+matplotlib>=3.6
+seaborn>=0.12
+optuna>=3.0

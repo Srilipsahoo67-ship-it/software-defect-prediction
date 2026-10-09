@@ -3,8 +3,8 @@ app.py
 ======
 Streamlit web application for Software Defect Prediction.
 
-Loads the trained XGBoost model and StandardScaler, accepts CK metrics
-from the user, and predicts whether a software module is defective.
+Loads the saved POI XGBoost model, accepts 20 software metrics, and predicts
+whether a software class is defective.
 
 Usage
 -----
@@ -12,7 +12,9 @@ Usage
 
 Prerequisites
 -------------
-    Run save_best_model.py first to generate best_model.pkl and scaler.pkl.
+    Install dependencies with `python -m pip install -r requirements-app.txt`.
+    Run `python export_poi_xgboost_app.py` once to export the verified model,
+    then start with `python -m streamlit run app.py`.
 """
 
 import os
@@ -40,22 +42,33 @@ st.set_page_config(
 # ─────────────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR      = os.path.dirname(os.path.abspath(__file__))
-BEST_MODEL_PATH = os.path.join(SCRIPT_DIR, "best_model.pkl")
-SCALER_PATH     = os.path.join(SCRIPT_DIR, "scaler.pkl")
-
-# Must match the exact order used during training
-CK_FEATURES = ["wmc", "dit", "noc", "cbo", "rfc", "lcom", "loc"]
-
-# Labels and helper text shown in the sidebar input widgets
-CK_META = {
-    "wmc":  ("WMC",  "Weighted Methods per Class",   0,   200,  10),
-    "dit":  ("DIT",  "Depth of Inheritance Tree",    0,    20,   2),
-    "noc":  ("NOC",  "Number of Children",           0,    50,   0),
-    "cbo":  ("CBO",  "Coupling Between Objects",     0,   100,   5),
-    "rfc":  ("RFC",  "Response for a Class",         0,   500,  20),
-    "lcom": ("LCOM", "Lack of Cohesion in Methods",  0,  2000,  30),
-    "loc":  ("LOC",  "Lines of Code",                0, 10000, 100),
-    #         label   description                    min   max  default
+MODEL_PATH = os.path.join(SCRIPT_DIR, "models", "poi_xgboost_app.pkl")
+FEATURES = [
+    "wmc", "dit", "noc", "cbo", "rfc", "lcom", "loc", "ca", "ce",
+    "npm", "lcom3", "dam", "moa", "mfa", "cam", "ic", "cbm", "amc",
+    "max_cc", "avg_cc",
+]
+FEATURE_META = {
+    "wmc": ("WMC", "Weighted methods per class"),
+    "dit": ("DIT", "Depth of inheritance tree"),
+    "noc": ("NOC", "Number of children"),
+    "cbo": ("CBO", "Coupling between objects"),
+    "rfc": ("RFC", "Response for a class"),
+    "lcom": ("LCOM", "Lack of cohesion in methods"),
+    "loc": ("LOC", "Lines of code"),
+    "ca": ("CA", "Afferent coupling"),
+    "ce": ("CE", "Efferent coupling"),
+    "npm": ("NPM", "Number of public methods"),
+    "lcom3": ("LCOM3", "Alternative cohesion measure"),
+    "dam": ("DAM", "Data access metric"),
+    "moa": ("MOA", "Measure of aggregation"),
+    "mfa": ("MFA", "Measure of functional abstraction"),
+    "cam": ("CAM", "Cohesion among methods"),
+    "ic": ("IC", "Inheritance coupling"),
+    "cbm": ("CBM", "Coupling between methods"),
+    "amc": ("AMC", "Average method complexity"),
+    "max_cc": ("MAX_CC", "Maximum cyclomatic complexity"),
+    "avg_cc": ("AVG_CC", "Average cyclomatic complexity"),
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -218,22 +231,15 @@ st.markdown("""
 
 @st.cache_resource
 def load_artifacts():
-    """
-    Load best_model.pkl and scaler.pkl from disk.
-    Uses st.cache_resource so the files are read only once.
-    Returns (model, scaler) or raises an error shown in the UI.
-    """
-    if not os.path.exists(BEST_MODEL_PATH):
+    """Load the verified 20-feature XGBoost bundle."""
+    if not os.path.exists(MODEL_PATH):
         raise FileNotFoundError(
-            "best_model.pkl not found. Run save_best_model.py first."
+            f"XGBoost model not found: {MODEL_PATH}. Run: python export_poi_xgboost_app.py"
         )
-    if not os.path.exists(SCALER_PATH):
-        raise FileNotFoundError(
-            "scaler.pkl not found. Run save_best_model.py first."
-        )
-    model  = joblib.load(BEST_MODEL_PATH)
-    scaler = joblib.load(SCALER_PATH)
-    return model, scaler
+    bundle = joblib.load(MODEL_PATH)
+    if bundle.get("model_name") != "XGBoost" or bundle.get("features") != FEATURES:
+        raise ValueError("Saved app model is not the expected 20-metric XGBoost model.")
+    return bundle
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HEADER
@@ -242,7 +248,7 @@ def load_artifacts():
 st.markdown("""
 <div class="header-box">
     <h1>&#128269; Software Defect Prediction</h1>
-    <p>Predict whether a software module is defective using CK object-oriented metrics.</p>
+    <p>Predict software defects from 20 object-oriented metrics using XGBoost.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -250,22 +256,38 @@ st.markdown("""
 # SIDEBAR — CK METRIC INPUTS
 # ─────────────────────────────────────────────────────────────────────────────
 
+try:
+    bundle = load_artifacts()
+    model = bundle["model"]
+    metadata = bundle
+    model_name = bundle["model_name"]
+    opt_threshold = float(bundle["threshold"])
+    feat_cols = bundle["features"]
+    input_defaults = bundle["input_defaults"]
+except Exception as e:
+    st.error(f"Could not load the XGBoost model: {e}")
+    st.stop()
+
 with st.sidebar:
-    st.markdown("## &#9881; CK Metric Inputs")
-    st.markdown("Enter the object-oriented metrics for the software module you want to evaluate.")
+    st.markdown("## &#9881; Software Metric Inputs")
+    st.markdown("Enter all 20 metrics for the software class you want to evaluate.")
     st.markdown("---")
 
     user_inputs = {}
-    for feature in CK_FEATURES:
-        label, description, min_val, max_val, default = CK_META[feature]
+    for position, feature in enumerate(feat_cols):
+        if position == 0:
+            st.markdown("**Core CK metrics**")
+        elif position == 7:
+            st.markdown("**Additional object-oriented metrics**")
+        label, description = FEATURE_META[feature]
         user_inputs[feature] = st.number_input(
             label       = "%s — %s" % (label, description),
-            min_value   = float(min_val),
-            max_value   = float(max_val),
-            value       = float(default),
+            min_value   = 0.0,
+            max_value   = 1_000_000_000.0,
+            value       = float(input_defaults[feature]),
             step        = 1.0,
             key         = feature,
-            help        = "%s ranges from %d to %d in the PROMISE dataset." % (label, min_val, max_val),
+            help        = description,
         )
 
     st.markdown("---")
@@ -275,29 +297,19 @@ with st.sidebar:
 # LOAD MODEL — show error in main area if files are missing
 # ─────────────────────────────────────────────────────────────────────────────
 
-try:
-    model, scaler = load_artifacts()
-    model_name    = type(model).__name__
-except FileNotFoundError as e:
-    st.error("**Model files not found.**\n\n%s" % str(e))
-    st.stop()
-except Exception as e:
-    st.error("**Failed to load model artifacts:** %s" % str(e))
-    st.stop()
-
 # ─────────────────────────────────────────────────────────────────────────────
 # IDLE STATE — shown before the button is clicked
 # ─────────────────────────────────────────────────────────────────────────────
 
 if not predict_clicked:
-    col_info1, col_info2, col_info3 = st.columns(3)
+    col_info1, col_info2, col_info3, col_info4 = st.columns(4)
 
     with col_info1:
         st.markdown("""
         <div class="metric-tile">
             <div class="label">Model</div>
-            <div class="value">XGBoost</div>
-        </div>""", unsafe_allow_html=True)
+            <div class="value">{mn}</div>
+        </div>""".format(mn=model_name.split("_")[0]), unsafe_allow_html=True)
 
     with col_info2:
         st.markdown("""
@@ -309,39 +321,28 @@ if not predict_clicked:
     with col_info3:
         st.markdown("""
         <div class="metric-tile">
-            <div class="label">CK Features</div>
-            <div class="value">7 Metrics</div>
+            <div class="label">Input Features</div>
+            <div class="value">20 Metrics</div>
         </div>""", unsafe_allow_html=True)
+
+    with col_info4:
+        st.markdown("""
+        <div class="metric-tile">
+            <div class="label">POI 3.0 Held-out Accuracy</div>
+            <div class="value">{:.2%}</div>
+        </div>""".format(bundle["test_metrics"]["Test_Accuracy"]), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.info(
-        "**How to use:**  Adjust the 7 CK metric sliders in the left sidebar, "
+        "**How to use:** Enter all 20 model metrics in the left sidebar, "
         "then click **Predict Defect** to get the prediction result.",
         icon="ℹ️"
     )
 
-    # CK metrics reference table
-    st.markdown('<div class="section-title">CK Metrics Reference</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Model Inputs and Descriptions</div>', unsafe_allow_html=True)
     ref_data = {
-        "Metric": ["WMC", "DIT", "NOC", "CBO", "RFC", "LCOM", "LOC"],
-        "Full Name": [
-            "Weighted Methods per Class",
-            "Depth of Inheritance Tree",
-            "Number of Children",
-            "Coupling Between Objects",
-            "Response for a Class",
-            "Lack of Cohesion in Methods",
-            "Lines of Code",
-        ],
-        "High Value Indicates": [
-            "Complex class, harder to maintain",
-            "Deep hierarchy, fragile base class risk",
-            "Wide hierarchy, high reuse but rigid",
-            "High coupling, low modularity",
-            "Many method calls, complex behaviour",
-            "Low cohesion, class doing too much",
-            "Large class, likely complex",
-        ],
+        "Metric": [FEATURE_META[f][0] for f in feat_cols],
+        "Description": [FEATURE_META[f][1] for f in feat_cols],
     }
     st.dataframe(pd.DataFrame(ref_data), use_container_width=True, hide_index=True)
 
@@ -351,22 +352,19 @@ if not predict_clicked:
 
 if predict_clicked:
 
-    # --- 1. Build DataFrame from user inputs ---
-    input_df = pd.DataFrame([user_inputs], columns=CK_FEATURES)
+    # Model expects the 20 raw metrics in the saved feature order.
+    row_dict = {feature: float(user_inputs[feature]) for feature in feat_cols}
+    X_input = np.array([[row_dict[feature] for feature in feat_cols]], dtype=float)
+    X_input = np.nan_to_num(X_input, nan=0, posinf=0, neginf=0)
 
-    # --- 2. Scale using the saved StandardScaler ---
-    # Pass .values (numpy array) to avoid sklearn feature-name mismatch warning
-    scaled_array = scaler.transform(input_df.values)
-
-    # --- 3. Run prediction ---
-    prediction  = int(model.predict(scaled_array)[0])
-    proba_array = model.predict_proba(scaled_array)[0]   # [prob_class_0, prob_class_1]
-    probability = round(float(proba_array[1]), 4)        # probability of being defective
+    proba_array = model.predict_proba(X_input)[0]
+    probability = round(float(proba_array[1]), 4)
+    prediction  = int(probability >= opt_threshold)
     confidence  = round(probability * 100, 1)
     label       = "Defective" if prediction == 1 else "Not Defective"
     card_class  = "card-defective" if prediction == 1 else "card-clean"
     value_class = "value-defective" if prediction == 1 else "value-clean"
-    icon        = "&#128308;" if prediction == 1 else "&#128994;"  # red / green circle
+    icon        = "&#128308;" if prediction == 1 else "&#128994;"
 
     # ── Result Cards ─────────────────────────────────────────────────────────
     st.markdown('<div class="section-title">Prediction Results</div>', unsafe_allow_html=True)
@@ -424,9 +422,9 @@ if predict_clicked:
         st.markdown('<div class="section-title">Input Summary</div>', unsafe_allow_html=True)
 
         summary_df = pd.DataFrame({
-            "Metric"     : [m[0] for m in CK_META.values()],
-            "Description": [m[1] for m in CK_META.values()],
-            "Value"      : [user_inputs[f] for f in CK_FEATURES],
+            "Metric"     : [FEATURE_META[f][0] for f in feat_cols],
+            "Description": [FEATURE_META[f][1] for f in feat_cols],
+            "Value"      : [user_inputs[f] for f in feat_cols],
         })
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
@@ -465,13 +463,10 @@ if predict_clicked:
         plt.close(fig)
 
     # ── Scaled Feature Values (expandable) ───────────────────────────────────
-    with st.expander("View Scaled Feature Values (after StandardScaler)"):
-        scaled_df = pd.DataFrame(scaled_array, columns=[f.upper() for f in CK_FEATURES])
-        st.dataframe(scaled_df.round(4), use_container_width=True, hide_index=True)
-        st.caption(
-            "These are the normalised values passed to the model. "
-            "Scaling is applied using the mean and std from the training dataset."
-        )
+    with st.expander("View the 20 model input values"):
+        eng_df = pd.DataFrame([row_dict]).round(4)
+        st.dataframe(eng_df, use_container_width=True, hide_index=True)
+        st.caption("These 20 raw metrics are passed directly to the XGBoost model.")
 
     # ── Tabs: SHAP | Cost/Effort | Model Insights | Dataset Stats ────────────
     st.markdown("<br>", unsafe_allow_html=True)
@@ -485,12 +480,14 @@ if predict_clicked:
     # ── Tab 1: SHAP ───────────────────────────────────────────────────────────
     with tab1:
         st.markdown('<div class="section-title">Why did the model predict this?</div>', unsafe_allow_html=True)
-        st.caption("SHAP (SHapley Additive exPlanations) shows how much each CK metric pushed the prediction towards Defective (+) or Clean (−).")
+        st.caption("SHAP shows how each input metric contributes to this XGBoost prediction.")
         try:
             explainer   = shap.TreeExplainer(model)
-            shap_values = explainer.shap_values(scaled_array)   # shape (1, n_features)
-            sv          = shap_values[0] if shap_values.ndim == 2 else shap_values[0]
-            feat_labels = [f.upper() for f in CK_FEATURES]
+            shap_values = explainer.shap_values(X_input)
+            if isinstance(shap_values, list):
+                shap_values = shap_values[1]
+            sv          = np.asarray(shap_values).reshape(-1, len(feat_cols))[0]
+            feat_labels = [f.upper() for f in feat_cols]
 
             # Sort by absolute impact
             order      = np.argsort(np.abs(sv))
@@ -520,7 +517,7 @@ if predict_clicked:
 
             # Interpretation table
             shap_df = pd.DataFrame({
-                "Metric"     : [feat_labels[i] for i in order[::-1]],
+                "Feature"    : [feat_labels[i] for i in order[::-1]],
                 "SHAP Value" : ["%+.4f" % sv[i] for i in order[::-1]],
                 "Impact"     : ["Increases defect risk" if sv[i] > 0 else "Reduces defect risk" for i in order[::-1]],
             })
@@ -590,23 +587,18 @@ if predict_clicked:
 
     # ── Tab 3: Model Insights ─────────────────────────────────────────────────
     with tab3:
-        fi_path = os.path.join(SCRIPT_DIR, "plots", "feature_importance.png")
-        pr_path = os.path.join(SCRIPT_DIR, "plots", "precision_recall_curves.png")
-
-        if os.path.exists(fi_path):
-            st.markdown('<div class="section-title">Feature Importance (RF + XGBoost)</div>', unsafe_allow_html=True)
-            st.image(fi_path, use_container_width=True)
-        else:
-            st.warning("feature_importance.png not found. Run: python visualize.py")
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        if os.path.exists(pr_path):
-            st.markdown('<div class="section-title">Precision-Recall Curves</div>', unsafe_allow_html=True)
-            st.caption("PR curves are more informative than ROC for imbalanced datasets. Higher area = better precision and recall together.")
-            st.image(pr_path, use_container_width=True)
-        else:
-            st.warning("precision_recall_curves.png not found. Run: python visualize.py")
+        st.markdown('<div class="section-title">XGBoost Feature Importance</div>', unsafe_allow_html=True)
+        importance = pd.Series(model.feature_importances_, index=feat_cols).sort_values().tail(10)
+        fig_importance, ax_importance = plt.subplots(figsize=(8, 4.5))
+        ax_importance.barh([FEATURE_META[f][0] for f in importance.index], importance.values,
+                           color="#4c78a8")
+        ax_importance.set_xlabel("Relative importance")
+        ax_importance.set_title("Top 10 POI 3.0 input metrics")
+        ax_importance.spines[["top", "right"]].set_visible(False)
+        plt.tight_layout()
+        st.pyplot(fig_importance, use_container_width=True)
+        plt.close(fig_importance)
+        st.caption("Feature importance is from the active XGBoost model. It is not a causal effect.")
 
     # ── Tab 4: Dataset Statistics ─────────────────────────────────────────────
     with tab4:
@@ -614,8 +606,12 @@ if predict_clicked:
         if os.path.exists(ds_path):
             st.markdown('<div class="section-title">PROMISE Repository — Dataset Overview</div>', unsafe_allow_html=True)
             st.image(ds_path, use_container_width=True)
-        else:
-            st.warning("dataset_statistics.png not found. Run: python visualize.py")
+
+        # Show dataset audit if available
+        audit_path = os.path.join(SCRIPT_DIR, "outputs", "dataset_audit.csv")
+        if os.path.exists(audit_path):
+            st.markdown('<div class="section-title">Dataset Audit</div>', unsafe_allow_html=True)
+            st.dataframe(pd.read_csv(audit_path), use_container_width=True, hide_index=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         proj_data = {
@@ -635,6 +631,6 @@ st.markdown("""
 <div style="text-align:center; color:#a0aec0; font-size:0.82rem; padding:1rem 0;
             border-top: 1px solid #e2e8f0;">
     Software Defect Prediction &nbsp;|&nbsp; PROMISE Repository &nbsp;|&nbsp;
-    Model: XGBoost &nbsp;|&nbsp; Features: CK Metrics
+    Model: {mn} &nbsp;|&nbsp; Features: 20 POI metrics
 </div>
-""", unsafe_allow_html=True)
+""".format(mn=model_name), unsafe_allow_html=True)

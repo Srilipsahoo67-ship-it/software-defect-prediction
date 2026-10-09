@@ -18,6 +18,7 @@ import os
 import glob
 import warnings
 warnings.filterwarnings("ignore")
+from data_utils import normalize_bug_labels
 
 import matplotlib
 matplotlib.use("Agg")
@@ -53,9 +54,14 @@ COLORS      = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
 
 # ── Load & Preprocess ────────────────────────────────────────────────────────
 
+# Datasets excluded from training (extreme class imbalance — 98.4% defective)
+EXCLUDE = ["xalan"]
+
 def load_and_prep():
     frames = []
     for f in glob.glob(os.path.join(DATASET_DIR, "*.csv")):
+        if any(ex in os.path.basename(f).lower() for ex in EXCLUDE):
+            continue
         df = pd.read_csv(f)
         df.columns = [c.lower().strip() for c in df.columns]
         label = next((c for c in df.columns if c in ["bug", "defect", "class", "label"]), None)
@@ -66,8 +72,7 @@ def load_and_prep():
     combined  = pd.concat(frames, ignore_index=True)
     available = [c for c in CK_FEATURES if c in combined.columns]
     combined  = combined[available + ["bug"]].copy()
-    combined["bug"] = combined["bug"].astype(str).str.lower().str.strip()
-    combined["bug"] = combined["bug"].map({"true":1,"false":0,"yes":1,"no":0,"1":1,"0":0})
+    combined["bug"] = normalize_bug_labels(combined["bug"])
     combined = combined.dropna(subset=["bug"])
     combined["bug"] = combined["bug"].astype(int)
     for col in available:

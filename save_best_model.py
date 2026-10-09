@@ -23,7 +23,7 @@ warnings.filterwarnings("ignore")
 import pandas as pd
 import joblib
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -31,6 +31,8 @@ from sklearn.svm import SVC
 from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier
 from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline as ImbPipeline
+from data_utils import normalize_bug_labels
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION
@@ -51,10 +53,17 @@ SCALER_PATH     = os.path.join(SCRIPT_DIR, "scaler.pkl")
 # 1. LOAD & PREPROCESS
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Datasets excluded from training (extreme class imbalance — 98.4% defective)
+EXCLUDE = ["xalan"]
+
 def load_and_preprocess():
     """Load all CSV datasets, normalise columns, and return X, y, feature list."""
     frames = []
     for f in glob.glob(os.path.join(DATASET_DIR, "*.csv")):
+        name = os.path.basename(f).lower()
+        if any(ex in name for ex in EXCLUDE):
+            print("  SKIPPED: %s (excluded)" % os.path.basename(f))
+            continue
         df = pd.read_csv(f)
         df.columns = [c.lower().strip() for c in df.columns]
         # Detect the defect label column regardless of its name
@@ -69,10 +78,7 @@ def load_and_preprocess():
     combined = combined[available + ["bug"]].copy()
 
     # Normalise defect label to binary int
-    combined["bug"] = (
-        combined["bug"].astype(str).str.lower().str.strip()
-        .map({"true": 1, "false": 0, "yes": 1, "no": 0, "1": 1, "0": 0})
-    )
+    combined["bug"] = normalize_bug_labels(combined["bug"])
     combined = combined.dropna(subset=["bug"])
     combined["bug"] = combined["bug"].astype(int)
 
@@ -97,21 +103,12 @@ def load_and_preprocess():
 
 def train_and_select_best(X, y):
     """
-    Split data, apply SMOTE on training set only, train all models,
-    evaluate on the held-out test set, and return the best model + scaler.
+    Select a model by training-only cross-validation, then refit on all training
+    data and return the fitted model + scaler.
     """
-    X_train, X_test, y_train, y_test = train_test_split(
+    X_train, _, y_train, _ = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
     )
-
-    # Fit scaler on training data only - prevents data leakage
-    scaler     = StandardScaler()
-    X_train_sc = scaler.fit_transform(X_train)
-    X_test_sc  = scaler.transform(X_test)
-
-    # Apply SMOTE only to the training set to handle class imbalance
-    sm = SMOTE(random_state=42)
-    X_train_sm, y_train_sm = sm.fit_resample(X_train_sc, y_train)
 
     models = {
         "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42),
@@ -120,18 +117,24 @@ def train_and_select_best(X, y):
         "XGBoost"      : XGBClassifier(eval_metric="logloss", random_state=42),
     }
 
-    print("%-20s %10s" % ("Model", "ROC-AUC"))
+    print("%-20s %15s" % ("Model", "CV ROC-AUC"))
     print("-" * 32)
 
     best_name  = None
     best_model = None
     best_auc   = -1.0
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
     for name, model in models.items():
-        model.fit(X_train_sm, y_train_sm)
-        y_prob    = model.predict_proba(X_test_sc)[:, 1]
-        auc_score = roc_auc_score(y_test, y_prob)
-        print("%-20s %10.4f" % (name, auc_score))
+        pipeline = ImbPipeline([
+            ("scaler", StandardScaler()),
+            ("smote", SMOTE(random_state=42)),
+            ("model", model),
+        ])
+        auc_score = cross_val_score(
+            pipeline, X_train, y_train, cv=cv, scoring="roc_auc", n_jobs=-1
+        ).mean()
+        print("%-20s %15.4f" % (name, auc_score))
 
         if auc_score > best_auc:
             best_auc   = auc_score
@@ -139,7 +142,14 @@ def train_and_select_best(X, y):
             best_model = model
 
     print("-" * 32)
-    print("\n[BEST] %s  (AUC = %.4f)\n" % (best_name, best_auc))
+    scaler = StandardScaler()
+    X_train_sc = scaler.fit_transform(X_train)
+    X_train_sm, y_train_sm = SMOTE(random_state=42).fit_resample(
+        X_train_sc, y_train
+    )
+    best_model.fit(X_train_sm, y_train_sm)
+    print("\n[BEST by training CV] %s  (mean AUC = %.4f)\n" %
+          (best_name, best_auc))
     return best_model, best_name, best_auc, scaler
 
 

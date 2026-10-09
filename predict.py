@@ -1,250 +1,148 @@
 """
 predict.py
 ==========
-Interactive Software Defect Prediction using saved model artifacts.
-
-Accepts 7 CK metrics from the user via the terminal, scales them using
-the fitted StandardScaler, and predicts whether the software module is
-Defective or Not Defective along with probability and confidence.
-
-Usage
------
-    python predict.py
-
-Prerequisites
--------------
-    Run save_best_model.py first to generate:
-        best_model.pkl
-        scaler.pkl
+CLI prediction using the final unified pipeline.
+Run improved_pipeline.py first to generate models/final_defect_prediction_pipeline.pkl
 """
 
-import os
-import sys
-import joblib
+import os, sys, json
+import numpy as np
 import pandas as pd
+import joblib
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PATHS & CONSTANTS
-# ─────────────────────────────────────────────────────────────────────────────
+BASE          = os.path.dirname(os.path.abspath(__file__))
+PIPELINE_PATH = os.path.join(BASE, "models", "final_defect_prediction_pipeline.pkl")
+METADATA_PATH = os.path.join(BASE, "models", "final_metadata.json")
 
-SCRIPT_DIR      = os.path.dirname(os.path.abspath(__file__))
-BEST_MODEL_PATH = os.path.join(SCRIPT_DIR, "best_model.pkl")
-SCALER_PATH     = os.path.join(SCRIPT_DIR, "scaler.pkl")
-
-# Feature order must exactly match what was used during training
 CK_FEATURES = ["wmc", "dit", "noc", "cbo", "rfc", "lcom", "loc"]
-
-# Human-readable descriptions shown to the user during input
-CK_DESCRIPTIONS = {
-    "wmc" : "WMC  - Weighted Methods per Class",
-    "dit" : "DIT  - Depth of Inheritance Tree",
-    "noc" : "NOC  - Number of Children",
-    "cbo" : "CBO  - Coupling Between Objects",
-    "rfc" : "RFC  - Response for a Class",
+CK_DESC = {
+    "wmc":  "WMC  - Weighted Methods per Class",
+    "dit":  "DIT  - Depth of Inheritance Tree",
+    "noc":  "NOC  - Number of Children",
+    "cbo":  "CBO  - Coupling Between Objects",
+    "rfc":  "RFC  - Response for a Class",
     "lcom": "LCOM - Lack of Cohesion in Methods",
-    "loc" : "LOC  - Lines of Code",
+    "loc":  "LOC  - Lines of Code",
 }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 1. LOAD ARTIFACTS
-# ─────────────────────────────────────────────────────────────────────────────
+def engineer_features(d):
+    """Must exactly match improved_pipeline.py engineer_features()."""
+    eps = 1e-6
+    for col in ["wmc", "loc", "lcom", "rfc", "cbo", "dit"]:
+        if col in d:
+            d[f"log_{col}"] = float(np.log1p(max(d[col], 0)))
+    if "wmc" in d and "loc" in d:
+        d["wmc_per_loc"]  = d["wmc"]  / (d["loc"]  + eps)
+    if "cbo" in d and "loc" in d:
+        d["cbo_per_loc"]  = d["cbo"]  / (d["loc"]  + eps)
+    if "rfc" in d and "wmc" in d:
+        d["rfc_per_wmc"]  = d["rfc"]  / (d["wmc"]  + eps)
+    if "lcom" in d and "wmc" in d:
+        d["lcom_per_wmc"] = d["lcom"] / (d["wmc"]  + eps)
+    if "cbo" in d and "rfc" in d:
+        d["coupling_sum"] = d["cbo"]  + d["rfc"]
+    if all(c in d for c in ["wmc", "rfc", "cbo"]):
+        d["complexity_avg"] = (d["wmc"] + d["rfc"] + d["cbo"]) / 3.0
+    return d
+
 
 def load_artifacts():
-    """
-    Load best_model.pkl and scaler.pkl from disk.
-    Raises FileNotFoundError if either file is missing.
-    """
-    if not os.path.exists(BEST_MODEL_PATH):
+    if not os.path.exists(PIPELINE_PATH):
         raise FileNotFoundError(
-            "best_model.pkl not found at: %s\n"
-            "Please run save_best_model.py first." % BEST_MODEL_PATH
+            f"Pipeline not found: {PIPELINE_PATH}\n"
+            "Run: python improved_pipeline.py"
         )
-    if not os.path.exists(SCALER_PATH):
-        raise FileNotFoundError(
-            "scaler.pkl not found at: %s\n"
-            "Please run save_best_model.py first." % SCALER_PATH
-        )
+    pipeline = joblib.load(PIPELINE_PATH)
+    metadata = {}
+    if os.path.exists(METADATA_PATH):
+        with open(METADATA_PATH) as fh:
+            metadata = json.load(fh)
+    return pipeline, metadata
 
-    model  = joblib.load(BEST_MODEL_PATH)
-    scaler = joblib.load(SCALER_PATH)
-
-    print("Model loaded  : %s" % type(model).__name__)
-    print("Scaler loaded : %s" % type(scaler).__name__)
-    return model, scaler
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. COLLECT USER INPUT
-# ─────────────────────────────────────────────────────────────────────────────
 
 def get_user_input():
-    """
-    Prompt the user to enter each CK metric value one by one.
-    Validates that each input is a non-negative number.
-    Returns a dict of {feature_name: float_value}.
-    """
-    print("\nEnter the CK metric values for the software module:")
+    print("\nEnter CK metric values:")
     print("-" * 50)
-
     metrics = {}
-    for feature in CK_FEATURES:
-        description = CK_DESCRIPTIONS[feature]
+    for feat in CK_FEATURES:
         while True:
             try:
-                raw = input("  %s : " % description).strip()
-                if raw == "":
-                    raise ValueError("Input cannot be empty.")
-                value = float(raw)
-                if value < 0:
-                    raise ValueError("Value must be >= 0.")
-                metrics[feature] = value
+                val = float(input(f"  {CK_DESC[feat]} : ").strip())
+                if val < 0:
+                    raise ValueError("Must be >= 0")
+                metrics[feat] = val
                 break
             except ValueError as e:
-                print("    [Invalid] %s Please enter a valid non-negative number." % str(e))
-
+                print(f"    [Invalid] {e}")
     return metrics
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. PREPROCESS INPUT
-# ─────────────────────────────────────────────────────────────────────────────
+def predict(pipeline, metadata, metrics):
+    raw = dict(metrics)
+    raw = engineer_features(raw)
 
-def preprocess(metrics, scaler):
-    """
-    Convert the input dict into a DataFrame and apply the saved StandardScaler.
+    feat_cols = metadata.get("training_features", list(raw.keys()))
+    missing_features = [feature for feature in feat_cols if feature not in raw]
+    if missing_features:
+        raise ValueError(
+            "The model requires features that cannot be derived from the "
+            "seven CK metrics: " + ", ".join(missing_features)
+            + ". Retrain the model with improved_pipeline.py or supply all "
+              "required metrics."
+        )
+    row = {f: raw[f] for f in feat_cols}
+    X = pd.DataFrame([row], columns=feat_cols).values.astype(float)
+    X = np.nan_to_num(X, nan=0, posinf=0, neginf=0)
 
-    Using a DataFrame (instead of a plain array) preserves feature names,
-    making the pipeline easier to debug and extend.
+    threshold = metadata.get("threshold", 0.5)
+    prob = float(pipeline.predict_proba(X)[0, 1])
+    pred = int(prob >= threshold)
 
-    Parameters
-    ----------
-    metrics : dict  {feature: value}
-    scaler  : fitted StandardScaler loaded from scaler.pkl
+    risk = "HIGH" if prob >= 0.70 else ("MEDIUM" if prob >= 0.45 else "LOW")
+    return pred, prob, risk, threshold
 
-    Returns
-    -------
-    scaled DataFrame ready for model inference
-    """
-    # Build a single-row DataFrame with columns in training order
-    df = pd.DataFrame([metrics], columns=CK_FEATURES)
-
-    print("\nRaw input as DataFrame:")
-    print(df.to_string(index=False))
-
-    # Scale using training statistics - must use transform(), never fit_transform()
-    # Pass .values (numpy array) to avoid sklearn feature-name mismatch warning
-    scaled_array = scaler.transform(df.values)
-    scaled_df    = pd.DataFrame(scaled_array, columns=CK_FEATURES)
-
-    return scaled_df
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 4. PREDICT
-# ─────────────────────────────────────────────────────────────────────────────
-
-def predict(model, scaled_df):
-    """
-    Run inference on the scaled input and return prediction details.
-
-    Parameters
-    ----------
-    model     : trained classifier loaded from best_model.pkl
-    scaled_df : scaled single-row DataFrame from preprocess()
-
-    Returns
-    -------
-    dict with keys:
-        label       - "Defective" or "Not Defective"
-        prediction  - raw int label (1 or 0)
-        probability - float probability of being defective (class 1)
-        confidence  - probability formatted as a percentage string
-    """
-    # predict() returns the class label (0 or 1)
-    prediction = int(model.predict(scaled_df)[0])
-
-    # predict_proba() returns [prob_class_0, prob_class_1]
-    # index [1] gives the probability of being defective
-    probability = round(float(model.predict_proba(scaled_df)[0][1]), 4)
-
-    return {
-        "label"      : "Defective" if prediction == 1 else "Not Defective",
-        "prediction" : prediction,
-        "probability": probability,
-        "confidence" : "%d%%" % round(probability * 100),
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 5. DISPLAY RESULTS
-# ─────────────────────────────────────────────────────────────────────────────
-
-def display_results(result):
-    """Print the prediction results in a clean, readable format."""
-    print("\n" + "=" * 40)
-    print("         PREDICTION RESULTS")
-    print("=" * 40)
-    print("Prediction  : %s" % result["label"])
-    print("Probability : %.2f" % result["probability"])
-    print("Confidence  : %s" % result["confidence"])
-    print("=" * 40)
-
-    # Extra context based on confidence level
-    prob = result["probability"]
-    if result["prediction"] == 1:
-        if prob >= 0.80:
-            print(">> High risk - this module very likely contains defects.")
-        elif prob >= 0.60:
-            print(">> Moderate risk - review this module carefully.")
-        else:
-            print(">> Low-moderate risk - consider a code review.")
-    else:
-        if prob <= 0.20:
-            print(">> Low risk - this module appears clean.")
-        else:
-            print(">> Borderline - the module leans clean but warrants attention.")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────────────────────────────────────
 
 def main():
     print("=" * 50)
     print("   Software Defect Prediction")
     print("=" * 50)
 
-    # Step 1 — Load saved artifacts
     try:
-        model, scaler = load_artifacts()
+        pipeline, metadata = load_artifacts()
+        print(f"Model loaded: {metadata.get('model', type(pipeline).__name__)}")
     except FileNotFoundError as e:
-        print("\n[ERROR] %s" % str(e))
+        print(f"\n[ERROR] {e}")
         sys.exit(1)
 
-    # Step 2 — Collect CK metrics from the user
     try:
         metrics = get_user_input()
     except KeyboardInterrupt:
-        print("\n\nPrediction cancelled by user.")
+        print("\nCancelled.")
         sys.exit(0)
 
-    # Step 3 — Convert to DataFrame and scale
-    try:
-        scaled_df = preprocess(metrics, scaler)
-    except Exception as e:
-        print("\n[ERROR] Failed during preprocessing: %s" % str(e))
-        sys.exit(1)
+    pred, prob, risk, thr = predict(pipeline, metadata, metrics)
+    label = "DEFECTIVE" if pred == 1 else "CLEAN"
 
-    # Step 4 — Run prediction
-    try:
-        result = predict(model, scaled_df)
-    except Exception as e:
-        print("\n[ERROR] Failed during prediction: %s" % str(e))
-        sys.exit(1)
+    print("\n" + "=" * 40)
+    print("         PREDICTION RESULTS")
+    print("=" * 40)
+    print(f"Prediction  : {label}")
+    print(f"Probability : {prob:.4f}")
+    print(f"Risk Level  : {risk}")
+    print(f"Threshold   : {thr:.2f}")
+    print("=" * 40)
 
-    # Step 5 — Display results
-    display_results(result)
+    if pred == 1:
+        msgs = {
+            "HIGH":   "High risk — immediate code review recommended.",
+            "MEDIUM": "Moderate risk — thorough review advised.",
+            "LOW":    "Low-moderate risk — consider targeted inspection.",
+        }
+        print(f">> {msgs[risk]}")
+    else:
+        print(">> Module appears clean." if prob <= 0.25
+              else ">> Borderline clean — light review recommended.")
 
 
 if __name__ == "__main__":
